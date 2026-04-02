@@ -527,24 +527,37 @@ function renderDoubanCards(data, container) {
             const safeRate = (item.rate || "暂无")
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
-            
-          // 处理图片URL - 切换为腾讯云 CDN 加速（cmliussss-cdn-tencent 风格）
+    // 处理图片URL - 增强版腾讯云 + 多重 fallback（2026最新推荐）
 const originalCoverUrl = item.cover || '';
 
-// 腾讯云 CDN 代理前缀（社区维护的豆瓣图片加速节点，国内访问快）
-const tencentCdnPrefix = 'https://images.cmliussss.com/?url=';   // 或其他腾讯云节点，如你有自己的COS可替换
+// 腾讯云 CDN 代理（cmliussss 维护的节点，优先使用）
+const tencentCdnPrefix = 'https://images.cmliussss.com/?url=';
 
-// 先尝试把豆瓣旧域名转成 img3（基础优化），再走腾讯云代理
-let finalCoverUrl = originalCoverUrl
+// 备用腾讯云/阿里云相关节点（如果上面失效）
+const backupPrefixes = [
+    'https://images.cmliussss.com/?url=',     // 主力腾讯云
+    'https://img3.doubanio.com/',             // 豆瓣官方 img3（阿里云）
+    'https://images.weserv.nl/?url='          // 公共免费代理（稳定备选）
+];
+
+// 先优化原 URL（转 img3）
+let optimizedUrl = originalCoverUrl
     .replace('img1.doubanio.com', 'img3.doubanio.com')
     .replace('img2.doubanio.com', 'img3.doubanio.com')
-    .replace('img9.doubanio.com', 'img3.doubanio.com');
+    .replace('img9.doubanio.com', 'img3.doubanio.com')
+    .replace(/^http:\/\//, 'https://');
 
-// 加上腾讯云代理（推荐方式）
-finalCoverUrl = tencentCdnPrefix + encodeURIComponent(finalCoverUrl.replace(/^http:\/\//, 'https://'));
+// 最终 URL：优先走腾讯云代理
+let finalCoverUrl = tencentCdnPrefix + encodeURIComponent(optimizedUrl);
 
-// 备选公共代理（万一腾讯云节点不稳定）
-const weservFallback = `https://images.weserv.nl/?url=${encodeURIComponent(originalCoverUrl.replace(/^http:\/\//, 'https://'))}`;
+// 生成 onerror 时的 fallback 链（依次尝试）
+const fallbackChain = backupPrefixes.map((prefix, index) => {
+    if (index === 0) return ''; // 第一个是主 URL，已使用
+    const fbUrl = prefix === 'https://img3.doubanio.com/' 
+        ? optimizedUrl.replace(/https?:\/\/[^\/]+/, 'https://img3.doubanio.com')
+        : prefix + encodeURIComponent(optimizedUrl);
+    return `this.src='${fbUrl}';`;
+}).filter(Boolean).join(' ');
 
 card.innerHTML = `
     <div class="relative w-full aspect-[2/3] overflow-hidden cursor-pointer" onclick="fillAndSearchWithDouban('${safeTitle}')">
@@ -552,7 +565,7 @@ card.innerHTML = `
             src="${finalCoverUrl}" 
             alt="${safeTitle}" 
             class="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
-            onerror="this.onerror=null; this.src='${weservFallback}';"
+            onerror="this.onerror=null; ${fallbackChain}"
             loading="lazy" 
             referrerpolicy="no-referrer">
         <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60"></div>
